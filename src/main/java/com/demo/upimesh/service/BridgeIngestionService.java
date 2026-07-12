@@ -1,6 +1,8 @@
 package com.demo.upimesh.service;
 
 import com.demo.upimesh.crypto.HybridCryptoService;
+import com.demo.upimesh.crypto.SenderKeyService;
+import com.demo.upimesh.crypto.SignatureService;
 import com.demo.upimesh.model.MeshPacket;
 import com.demo.upimesh.model.PaymentInstruction;
 import com.demo.upimesh.model.Transaction;
@@ -32,6 +34,8 @@ public class BridgeIngestionService {
     @Autowired private HybridCryptoService crypto;
     @Autowired private IdempotencyService idempotency;
     @Autowired private SettlementService settlement;
+    @Autowired private SenderKeyService senderKeys;
+        @Autowired private SignatureService signatures;
 
     @Value("${upi.mesh.packet-max-age-seconds:86400}")
     private long maxAgeSeconds;
@@ -56,6 +60,18 @@ public class BridgeIngestionService {
                         packetHash.substring(0, 12) + "...", e.getMessage());
                 return IngestResult.invalid(packetHash, "decryption_failed");
             }
+            // ---- Authenticity check ----
+try {
+    boolean validSignature = signatures.verify(
+            instruction,
+            instruction.getSignature(),
+            senderKeys.getPublicKey(instruction.getSenderVpa()));
+    if (!validSignature) {
+        return IngestResult.invalid(packetHash, "invalid_signature");
+    }
+} catch (Exception e) {
+    return IngestResult.invalid(packetHash, "invalid_signature");
+}
 
             // ---- Freshness check (replay protection) ----
             long ageSeconds = (Instant.now().toEpochMilli() - instruction.getSignedAt()) / 1000;
