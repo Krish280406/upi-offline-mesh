@@ -30,7 +30,8 @@ public class ApiController {
     @Autowired private AccountRepository accountRepo;
     @Autowired private TransactionRepository txRepo;
     @Autowired private IdempotencyService idempotency;
-
+    @Autowired private com.demo.upimesh.crypto.BridgeAuthService bridgeAuth;
+    @Autowired private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     // ------------------------------------------------------------------ key
 
     @GetMapping("/server-key")
@@ -153,14 +154,22 @@ public class ApiController {
      * the device has internet and is holding mesh packets.
      */
     @PostMapping("/bridge/ingest")
-    public ResponseEntity<?> ingest(
-            @RequestBody MeshPacket packet,
-            @RequestHeader(value = "X-Bridge-Node-Id", defaultValue = "unknown") String bridgeNodeId,
-            @RequestHeader(value = "X-Hop-Count", defaultValue = "0") int hopCount) {
+public ResponseEntity<?> ingest(
+        @RequestBody String rawBody,
+        @RequestHeader(value = "X-Bridge-Node-Id", defaultValue = "unknown") String bridgeNodeId,
+        @RequestHeader(value = "X-Hop-Count", defaultValue = "0") int hopCount,
+        @RequestHeader(value = "X-Bridge-Signature", required = false) String signature) throws Exception {
 
-        BridgeIngestionService.IngestResult r = bridge.ingest(packet, bridgeNodeId, hopCount);
-        return ResponseEntity.ok(r);
+    if (!bridgeAuth.isValidSignature(rawBody, signature)) {
+        return ResponseEntity.status(401).body(Map.of(
+                "outcome", "UNAUTHORIZED",
+                "reason", "invalid_or_missing_signature"));
     }
+
+    MeshPacket packet = objectMapper.readValue(rawBody, MeshPacket.class);
+    BridgeIngestionService.IngestResult r = bridge.ingest(packet, bridgeNodeId, hopCount);
+    return ResponseEntity.ok(r);
+}
 
     // ------------------------------------------------------------- accounts
 
