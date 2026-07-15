@@ -3,7 +3,7 @@
 A Spring Boot backend that demonstrates **offline UPI payments routed through a Bluetooth-style mesh network**. You're in a basement with zero connectivity. You send your friend ₹500. Your phone encrypts the payment, broadcasts it to nearby phones, and the packet hops device-to-device until *some* phone walks outside, gets 4G, and silently uploads it to this backend. The backend decrypts, deduplicates, and settles.
 
 This repo is the **server side** of that system, plus a software simulator of the mesh so you can demo the whole flow on a single laptop without any real Bluetooth hardware.
->Running with Postgres
+
 ---
 
 ## Table of Contents
@@ -37,7 +37,7 @@ You'll see all three in the dashboard.
 
 ### Prerequisites
 
-- **JDK 21 or newer** installed and on PATH (or `JAVA_HOME` set). Check with `java -version`.
+- **JDK 17 or newer** installed and on PATH (or `JAVA_HOME` set). Check with `java -version`.
 - That's it. No database, no Redis, no Maven (the wrapper handles it). Just Java.
 
 ### Run on Windows
@@ -247,7 +247,7 @@ See `BridgeIngestionService.java` for the freshness check.
 
 ```
 upi-offline-mesh/
-├── pom.xml                                  Maven build, Spring Boot 3.3, Java 21
+├── pom.xml                                  Maven build, Spring Boot 3.3, Java 17
 ├── mvnw, mvnw.cmd                           Maven wrapper (no install needed)
 ├── README.md                                this file
 └── src/main/
@@ -388,7 +388,7 @@ For a college / portfolio project: name the concept honestly as **"mesh-routed d
 
 ## Troubleshooting
 
-**`java: command not found`** — Install JDK 21+. On Windows, `winget install EclipseAdoptium.Temurin.21.JDK` or download from adoptium.net.
+**`java: command not found`** — Install JDK 17+. On Windows, `winget install EclipseAdoptium.Temurin.17.JDK` or download from adoptium.net.
 
 **Port 8080 already in use** — Change `server.port` in `application.properties`.
 
@@ -401,5 +401,3 @@ For a college / portfolio project: name the concept honestly as **"mesh-routed d
 ---
 
 ## License
-
-Demo code, no license. Use it however you want for learning.
