@@ -2,23 +2,18 @@ package com.demo.upimesh.controller;
 
 import com.demo.upimesh.crypto.ServerKeyHolder;
 import com.demo.upimesh.model.*;
+import com.demo.upimesh.repository.AccountRepository;
+import com.demo.upimesh.repository.TransactionRepository;
 import com.demo.upimesh.service.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.stream.Collectors;
 
-/**
- * Public REST surface.
- *
- * The endpoints split into three groups:
- *   /api/server-key      → so simulated senders can fetch the server's public key
- *   /api/mesh/*          → simulator endpoints (inject, gossip, flush)
- *   /api/bridge/ingest   → THE real production endpoint a real bridge node would hit
- *   /api/accounts, /api/transactions → for the dashboard
- */
 @RestController
 @RequestMapping("/api")
 public class ApiController {
@@ -32,7 +27,6 @@ public class ApiController {
     @Autowired private IdempotencyService idempotency;
     @Autowired private com.demo.upimesh.crypto.BridgeAuthService bridgeAuth;
     @Autowired private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
-    // ------------------------------------------------------------------ key
 
     @GetMapping("/server-key")
     public Map<String, String> getServerPublicKey() {
@@ -43,14 +37,8 @@ public class ApiController {
         );
     }
 
-    // ---------------------------------------------------------------- demo
-
-    /**
-     * Demo helper: build a packet on the server (simulating a sender phone)
-     * and inject it into the mesh at the given device.
-     */
     @PostMapping("/demo/send")
-    public ResponseEntity<?> demoSend(@RequestBody DemoSendRequest req) throws Exception {
+    public ResponseEntity<?> demoSend(@jakarta.validation.Valid @RequestBody DemoSendRequest req) throws Exception {
         MeshPacket packet = demo.createPacket(
                 req.senderVpa, req.receiverVpa, req.amount, req.pin,
                 req.ttl == null ? 5 : req.ttl);
@@ -67,15 +55,23 @@ public class ApiController {
     }
 
     public static class DemoSendRequest {
+        @jakarta.validation.constraints.NotBlank
         public String senderVpa;
+
+        @jakarta.validation.constraints.NotBlank
         public String receiverVpa;
+
+        @jakarta.validation.constraints.NotNull
+        @jakarta.validation.constraints.Positive
         public BigDecimal amount;
+
+        @jakarta.validation.constraints.NotBlank
+        @jakarta.validation.constraints.Pattern(regexp = "\\d{4}", message = "PIN must be exactly 4 digits")
         public String pin;
+
         public Integer ttl;
         public String startDevice;
     }
-
-    // -------------------------------------------------------------- mesh sim
 
     @GetMapping("/mesh/state")
     public Map<String, Object> meshState() {
@@ -105,20 +101,11 @@ public class ApiController {
         );
     }
 
-    /**
-     * "All bridge nodes simultaneously walk outside and get 4G."
-     * They all upload everything they hold to /api/bridge/ingest.
-     *
-     * THIS is the moment the duplicate-storm idempotency case is tested:
-     * if multiple bridge nodes hold the same packet, the server gets multiple
-     * concurrent POSTs of the same ciphertext, and only one should settle.
-     */
     @PostMapping("/mesh/flush")
     public Map<String, Object> meshFlush() {
         List<MeshSimulatorService.BridgeUpload> uploads = mesh.collectBridgeUploads();
 
         List<Map<String, Object>> results = new ArrayList<>();
-        // Upload them in parallel to actually exercise concurrent idempotency.
         uploads.parallelStream().forEach(up -> {
             BridgeIngestionService.IngestResult r =
                     bridge.ingest(up.packet(), up.bridgeNodeId(), 5 - up.packet().getTtl());
@@ -146,32 +133,23 @@ public class ApiController {
         return Map.of("status", "mesh and idempotency cache cleared");
     }
 
-    // -------------------------------------------------------------- bridge
-
-    /**
-     * THE PRODUCTION ENDPOINT.
-     * In a real deployment, the Android app's bridge logic POSTs here whenever
-     * the device has internet and is holding mesh packets.
-     */
     @PostMapping("/bridge/ingest")
-public ResponseEntity<?> ingest(
+    public ResponseEntity<?> ingest(
         @RequestBody String rawBody,
         @RequestHeader(value = "X-Bridge-Node-Id", defaultValue = "unknown") String bridgeNodeId,
         @RequestHeader(value = "X-Hop-Count", defaultValue = "0") int hopCount,
         @RequestHeader(value = "X-Bridge-Signature", required = false) String signature) throws Exception {
 
-    if (!bridgeAuth.isValidSignature(rawBody, signature)) {
-        return ResponseEntity.status(401).body(Map.of(
-                "outcome", "UNAUTHORIZED",
-                "reason", "invalid_or_missing_signature"));
+        if (!bridgeAuth.isValidSignature(rawBody, signature)) {
+            return ResponseEntity.status(401).body(Map.of(
+                    "outcome", "UNAUTHORIZED",
+                    "reason", "invalid_or_missing_signature"));
+        }
+
+        MeshPacket packet = objectMapper.readValue(rawBody, MeshPacket.class);
+        BridgeIngestionService.IngestResult r = bridge.ingest(packet, bridgeNodeId, hopCount);
+        return ResponseEntity.ok(r);
     }
-
-    MeshPacket packet = objectMapper.readValue(rawBody, MeshPacket.class);
-    BridgeIngestionService.IngestResult r = bridge.ingest(packet, bridgeNodeId, hopCount);
-    return ResponseEntity.ok(r);
-}
-
-    // ------------------------------------------------------------- accounts
 
     @GetMapping("/accounts")
     public List<Account> listAccounts() {
