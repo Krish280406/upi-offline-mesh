@@ -9,10 +9,17 @@ import com.demo.upimesh.interceptor.BridgeRateLimitInterceptor;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    @Autowired private BridgeRateLimitInterceptor rateLimitInterceptor;
+    private BridgeRateLimitInterceptor rateLimitInterceptor;
+
+    @Autowired(required = false)
+    public WebConfig(BridgeRateLimitInterceptor rateLimitInterceptor) {
+        this.rateLimitInterceptor = rateLimitInterceptor;
+    }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(rateLimitInterceptor);
+        if (rateLimitInterceptor != null) {
+            registry.addInterceptor(rateLimitInterceptor);
+        }
     }
 }
