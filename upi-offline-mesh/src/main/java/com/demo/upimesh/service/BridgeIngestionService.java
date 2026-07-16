@@ -70,23 +70,29 @@ public class BridgeIngestionService {
 
             // ---- Settle ----
             Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
-            return IngestResult.settled(packetHash, tx);
+            if (tx.getStatus() == Transaction.Status.REJECTED) {
+          return IngestResult.rejected(packetHash, tx);
+}
+         return IngestResult.settled(packetHash, tx);
 
-        } catch (Exception e) {
+          } catch (Exception e) {
             log.error("Ingestion error: {}", e.getMessage(), e);
             return IngestResult.invalid("?", "internal_error: " + e.getMessage());
         }
     }
 
-    public record IngestResult(String outcome, String packetHash, String reason, Long transactionId) {
-        public static IngestResult settled(String hash, Transaction tx) {
-            return new IngestResult("SETTLED", hash, null, tx.getId());
-        }
-        public static IngestResult duplicate(String hash) {
-            return new IngestResult("DUPLICATE_DROPPED", hash, null, null);
-        }
-        public static IngestResult invalid(String hash, String reason) {
-            return new IngestResult("INVALID", hash, reason, null);
-        }
+ public record IngestResult(String outcome, String packetHash, String reason, Long transactionId) {
+    public static IngestResult settled(String hash, Transaction tx) {
+        return new IngestResult("SETTLED", hash, null, tx.getId());
     }
+    public static IngestResult rejected(String hash, Transaction tx) {
+        return new IngestResult("REJECTED", hash, "insufficient_funds", tx.getId());
+    }
+    public static IngestResult duplicate(String hash) {
+        return new IngestResult("DUPLICATE_DROPPED", hash, null, null);
+    }
+    public static IngestResult invalid(String hash, String reason) {
+        return new IngestResult("INVALID", hash, reason, null);
+    }
+ }
 }
