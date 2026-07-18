@@ -29,7 +29,7 @@ class SignatureVerificationTest {
         PaymentInstruction forged = new PaymentInstruction(
                 "alice@demo", "bob@demo", new BigDecimal("500.00"),
                 "pinhash", UUID.randomUUID().toString(), Instant.now().toEpochMilli());
-        // no forged.setSignature(...) — attacker doesn't have alice's private key
+        // no forged.setSignature(...) â€” attacker doesn't have alice's private key
 
         String ciphertext = crypto.encrypt(forged, serverKey.getPublicKey());
         MeshPacket packet = new MeshPacket();

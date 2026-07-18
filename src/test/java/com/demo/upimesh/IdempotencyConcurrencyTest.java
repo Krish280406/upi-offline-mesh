@@ -4,7 +4,7 @@ import com.demo.upimesh.crypto.HybridCryptoService;
 import com.demo.upimesh.crypto.ServerKeyHolder;
 import com.demo.upimesh.model.MeshPacket;
 import com.demo.upimesh.model.PaymentInstruction;
-import com.demo.upimesh.model.AccountRepository;
+import com.demo.upimesh.repository.AccountRepository;
 import com.demo.upimesh.service.BridgeIngestionService;
 import com.demo.upimesh.service.DemoService;
 import com.demo.upimesh.service.IdempotencyService;

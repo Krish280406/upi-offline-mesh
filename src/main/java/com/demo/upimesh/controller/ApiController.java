@@ -1,4 +1,6 @@
 package com.demo.upimesh.controller;
+import com.demo.upimesh.repository.AccountRepository;
+import com.demo.upimesh.repository.TransactionRepository;
 
 import com.demo.upimesh.crypto.ServerKeyHolder;
 import com.demo.upimesh.model.*;
@@ -14,10 +16,10 @@ import java.util.*;
  * Public REST surface.
  *
  * The endpoints split into three groups:
- *   /api/server-key      → so simulated senders can fetch the server's public key
- *   /api/mesh/*          → simulator endpoints (inject, gossip, flush)
- *   /api/bridge/ingest   → THE real production endpoint a real bridge node would hit
- *   /api/accounts, /api/transactions → for the dashboard
+ *   /api/server-key      â†’ so simulated senders can fetch the server's public key
+ *   /api/mesh/*          â†’ simulator endpoints (inject, gossip, flush)
+ *   /api/bridge/ingest   â†’ THE real production endpoint a real bridge node would hit
+ *   /api/accounts, /api/transactions â†’ for the dashboard
  */
 @RestController
 @RequestMapping("/api")
