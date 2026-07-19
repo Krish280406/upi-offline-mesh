@@ -1,6 +1,8 @@
 package com.demo.upimesh.service;
 
 import com.demo.upimesh.crypto.HybridCryptoService;
+import com.demo.upimesh.crypto.SenderKeyService;
+import com.demo.upimesh.crypto.SignatureService;
 import com.demo.upimesh.model.MeshPacket;
 import com.demo.upimesh.model.PaymentInstruction;
 import com.demo.upimesh.model.Transaction;
@@ -12,18 +14,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 
-/**
- * Orchestrates the full server-side pipeline for one inbound packet from a
- * bridge node:
- *
- *   1. Hash the ciphertext.
- *   2. Try to claim that hash via the idempotency cache.
- *      - If already claimed: this is a duplicate. Drop it.
- *   3. Decrypt the ciphertext with the server's private key.
- *      - If decryption fails: tampered or junk. Reject.
- *   4. Check freshness — reject if signedAt is too old (replay protection).
- *   5. Hand off to SettlementService for the actual debit/credit.
- */
 @Service
 public class BridgeIngestionService {
 
@@ -32,6 +22,9 @@ public class BridgeIngestionService {
     @Autowired private HybridCryptoService crypto;
     @Autowired private IdempotencyService idempotency;
     @Autowired private SettlementService settlement;
+    @Autowired private SenderKeyService senderKeys;
+    @Autowired private SignatureService signatures;
+    @Autowired private HoldService holdService;
 
     @Value("${upi.mesh.packet-max-age-seconds:86400}")
     private long maxAgeSeconds;
@@ -40,14 +33,16 @@ public class BridgeIngestionService {
         try {
             String packetHash = crypto.hashCiphertext(packet.getCiphertext());
 
-            // ---- Idempotency gate ----
             if (!idempotency.claim(packetHash)) {
                 log.info("DUPLICATE packet {} from bridge {} — dropped",
                         packetHash.substring(0, 12) + "...", bridgeNodeId);
                 return IngestResult.duplicate(packetHash);
             }
 
-            // ---- Decrypt ----
+            // Release the hold as soon as the backend has made its first
+            // attempt on this exact packet, regardless of outcome below.
+            holdService.release(packetHash);
+
             PaymentInstruction instruction;
             try {
                 instruction = crypto.decrypt(packet.getCiphertext());
@@ -57,42 +52,48 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "decryption_failed");
             }
 
-            // ---- Freshness check (replay protection) ----
+            try {
+                boolean validSignature = signatures.verify(
+                        instruction, instruction.getSignature(),
+                        senderKeys.getPublicKey(instruction.getSenderVpa()));
+                if (!validSignature) return IngestResult.invalid(packetHash, "invalid_signature");
+            } catch (Exception e) {
+                return IngestResult.invalid(packetHash, "invalid_signature");
+            }
+
             long ageSeconds = (Instant.now().toEpochMilli() - instruction.getSignedAt()) / 1000;
             if (ageSeconds > maxAgeSeconds) {
-                log.warn("Packet {} too old ({}s), rejected",
-                        packetHash.substring(0, 12) + "...", ageSeconds);
+                log.warn("Packet {} too old ({}s), rejected", packetHash.substring(0, 12) + "...", ageSeconds);
                 return IngestResult.invalid(packetHash, "stale_packet");
             }
-            if (ageSeconds < -300) { // small clock-skew tolerance
+            if (ageSeconds < -300) {
                 return IngestResult.invalid(packetHash, "future_dated");
             }
 
-            // ---- Settle ----
             Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
             if (tx.getStatus() == Transaction.Status.REJECTED) {
-          return IngestResult.rejected(packetHash, tx);
-}
-         return IngestResult.settled(packetHash, tx);
+                return IngestResult.rejected(packetHash, tx);
+            }
+            return IngestResult.settled(packetHash, tx);
 
-          } catch (Exception e) {
+        } catch (Exception e) {
             log.error("Ingestion error: {}", e.getMessage(), e);
             return IngestResult.invalid("?", "internal_error: " + e.getMessage());
         }
     }
 
- public record IngestResult(String outcome, String packetHash, String reason, Long transactionId) {
-    public static IngestResult settled(String hash, Transaction tx) {
-        return new IngestResult("SETTLED", hash, null, tx.getId());
+    public record IngestResult(String outcome, String packetHash, String reason, Long transactionId) {
+        public static IngestResult settled(String hash, Transaction tx) {
+            return new IngestResult("SETTLED", hash, null, tx.getId());
+        }
+        public static IngestResult rejected(String hash, Transaction tx) {
+            return new IngestResult("REJECTED", hash, "insufficient_funds", tx.getId());
+        }
+        public static IngestResult duplicate(String hash) {
+            return new IngestResult("DUPLICATE_DROPPED", hash, null, null);
+        }
+        public static IngestResult invalid(String hash, String reason) {
+            return new IngestResult("INVALID", hash, reason, null);
+        }
     }
-    public static IngestResult rejected(String hash, Transaction tx) {
-        return new IngestResult("REJECTED", hash, "insufficient_funds", tx.getId());
-    }
-    public static IngestResult duplicate(String hash) {
-        return new IngestResult("DUPLICATE_DROPPED", hash, null, null);
-    }
-    public static IngestResult invalid(String hash, String reason) {
-        return new IngestResult("INVALID", hash, reason, null);
-    }
- }
 }
