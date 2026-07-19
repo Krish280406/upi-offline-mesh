@@ -2,6 +2,8 @@ package com.demo.upimesh.service;
 
 import com.demo.upimesh.crypto.HybridCryptoService;
 import com.demo.upimesh.crypto.ServerKeyHolder;
+import com.demo.upimesh.crypto.SenderKeyService;
+import com.demo.upimesh.crypto.SignatureService;
 import com.demo.upimesh.model.Account;
 import com.demo.upimesh.model.AccountRepository;
 import com.demo.upimesh.model.MeshPacket;
@@ -17,11 +19,6 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Helper service that:
- *   - seeds demo accounts on startup
- *   - simulates "sender phone creates an encrypted packet" flow
- */
 @Service
 public class DemoService {
 
@@ -30,6 +27,9 @@ public class DemoService {
     @Autowired private AccountRepository accounts;
     @Autowired private HybridCryptoService crypto;
     @Autowired private ServerKeyHolder serverKey;
+    @Autowired private SenderKeyService senderKeys;
+    @Autowired private SignatureService signatures;
+    @Autowired private HoldService holdService;
 
     @PostConstruct
     public void seedAccounts() {
@@ -42,28 +42,22 @@ public class DemoService {
         }
     }
 
-    /**
-     * Simulates the sender's phone:
-     *   1. Build a PaymentInstruction with a fresh nonce + signedAt timestamp.
-     *   2. Encrypt with the server's public key (hybrid RSA+AES).
-     *   3. Wrap in a MeshPacket with TTL.
-     *
-     * In a real Android app, this exact code (minus the server-side reference)
-     * would run on the phone. The phone would have already cached the server's
-     * public key during a previous online session.
-     */
     public MeshPacket createPacket(String senderVpa, String receiverVpa,
                                    BigDecimal amount, String pin, int ttl) throws Exception {
         PaymentInstruction instruction = new PaymentInstruction(
-                senderVpa,
-                receiverVpa,
-                amount,
-                sha256Hex(pin),
-                UUID.randomUUID().toString(),       // nonce — guarantees uniqueness
-                Instant.now().toEpochMilli()        // signedAt — for freshness check
-        );
+                senderVpa, receiverVpa, amount, sha256Hex(pin),
+                UUID.randomUUID().toString(), Instant.now().toEpochMilli());
+
+        String signature = signatures.sign(instruction, senderKeys.getPrivateKey(senderVpa));
+        instruction.setSignature(signature);
 
         String ciphertext = crypto.encrypt(instruction, serverKey.getPublicKey());
+        String packetHash = crypto.hashCiphertext(ciphertext);
+
+        if (!holdService.tryReserve(senderVpa, amount, packetHash)) {
+            throw new IllegalArgumentException(
+                    "Insufficient available balance (including funds already held by pending offline payments)");
+        }
 
         MeshPacket packet = new MeshPacket();
         packet.setPacketId(UUID.randomUUID().toString());
