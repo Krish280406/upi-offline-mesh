@@ -25,6 +25,7 @@ public class BridgeIngestionService {
     @Autowired private SenderKeyService senderKeys;
     @Autowired private SignatureService signatures;
     @Autowired private HoldService holdService;
+    @Autowired private IngestionMetrics metrics;
 
     @Value("${upi.mesh.packet-max-age-seconds:86400}")
     private long maxAgeSeconds;
@@ -36,11 +37,10 @@ public class BridgeIngestionService {
             if (!idempotency.claim(packetHash)) {
                 log.info("DUPLICATE packet {} from bridge {} — dropped",
                         packetHash.substring(0, 12) + "...", bridgeNodeId);
+                metrics.recordDuplicate();
                 return IngestResult.duplicate(packetHash);
             }
 
-            // Release the hold as soon as the backend has made its first
-            // attempt on this exact packet, regardless of outcome below.
             holdService.release(packetHash);
 
             PaymentInstruction instruction;
@@ -49,6 +49,7 @@ public class BridgeIngestionService {
             } catch (Exception e) {
                 log.warn("Decryption failed for packet {}: {}",
                         packetHash.substring(0, 12) + "...", e.getMessage());
+                metrics.recordInvalid();
                 return IngestResult.invalid(packetHash, "decryption_failed");
             }
 
@@ -56,28 +57,37 @@ public class BridgeIngestionService {
                 boolean validSignature = signatures.verify(
                         instruction, instruction.getSignature(),
                         senderKeys.getPublicKey(instruction.getSenderVpa()));
-                if (!validSignature) return IngestResult.invalid(packetHash, "invalid_signature");
+                if (!validSignature) {
+                    metrics.recordInvalid();
+                    return IngestResult.invalid(packetHash, "invalid_signature");
+                }
             } catch (Exception e) {
+                metrics.recordInvalid();
                 return IngestResult.invalid(packetHash, "invalid_signature");
             }
 
             long ageSeconds = (Instant.now().toEpochMilli() - instruction.getSignedAt()) / 1000;
             if (ageSeconds > maxAgeSeconds) {
                 log.warn("Packet {} too old ({}s), rejected", packetHash.substring(0, 12) + "...", ageSeconds);
+                metrics.recordInvalid();
                 return IngestResult.invalid(packetHash, "stale_packet");
             }
             if (ageSeconds < -300) {
+                metrics.recordInvalid();
                 return IngestResult.invalid(packetHash, "future_dated");
             }
 
             Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
             if (tx.getStatus() == Transaction.Status.REJECTED) {
+                metrics.recordRejected();
                 return IngestResult.rejected(packetHash, tx);
             }
+            metrics.recordSettled();
             return IngestResult.settled(packetHash, tx);
 
         } catch (Exception e) {
             log.error("Ingestion error: {}", e.getMessage(), e);
+            metrics.recordInvalid();
             return IngestResult.invalid("?", "internal_error: " + e.getMessage());
         }
     }
