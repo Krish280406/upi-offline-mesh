@@ -5,14 +5,6 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * A temporary reservation against a sender's balance, created the moment
- * they inject a payment into the mesh, released once the backend has made
- * a first attempt to process it (settled, rejected, or invalid). This is
- * an honest partial fix: it doesn't close the double-spend window (a
- * sufficiently well-timed attacker whose phone never round-trips to check
- * holds could still slip past it), it just narrows it.
- */
 @Entity
 @Table(name = "holds")
 public class Hold {

@@ -1,7 +1,7 @@
 package com.demo.upimesh.service;
 
 import com.demo.upimesh.model.Account;
-import com.demo.upimesh.model.AccountRepository;
+import com.demo.upimesh.repository.AccountRepository;
 import com.demo.upimesh.model.Hold;
 import com.demo.upimesh.model.HoldRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +33,7 @@ public class HoldService {
 
         BigDecimal available = sender.getBalance().subtract(alreadyHeld);
         if (available.compareTo(amount) < 0) {
-            return false;
+            throw new IllegalArgumentException("Insufficient balance after existing holds");
         }
 
         Hold hold = new Hold();
@@ -59,3 +59,4 @@ public class HoldService {
                 .forEach(holds::delete);
     }
 }
+
