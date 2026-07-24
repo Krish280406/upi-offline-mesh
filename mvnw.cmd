@@ -2,7 +2,7 @@
 @REM Apache Maven Wrapper startup script (Windows)
 @REM
 @REM First-run behavior: this script will download the Maven Wrapper JAR
-@REM (~60KB) from Maven Central into .mvn/wrapper/ and then use it to download
+@REM (-60KB) from Maven Central into .mvn/wrapper/ and then use it to download
 @REM the full Maven distribution.
 @REM
 @REM Required: Java 17 or newer on PATH (or JAVA_HOME set).
